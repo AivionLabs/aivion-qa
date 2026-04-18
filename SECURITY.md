@@ -4,7 +4,7 @@
 
 If you believe you've found a security issue in `aivion-qa`, please **do not open a public GitHub issue**. Email instead:
 
-**security@aivionlabs.com**
+**hello@aivionlabs.com**
 
 Include:
 - A clear description of the issue and its impact
