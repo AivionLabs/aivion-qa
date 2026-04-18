@@ -4,7 +4,7 @@
 Write YAML plans. Run Playwright. Get a report. No cloud, no dashboard, no per-run LLM tax.
 
 ```bash
-npm install -g @aivionlabs/qa
+npm install -g aivion-qa
 aivion-qa install-browsers
 aivion-qa init
 aivion-qa doctor
@@ -37,7 +37,7 @@ Full responsibility split: [docs/README.md](docs/README.md).
 - An auth provider — see [docs/auth/](docs/README.md#auth-providers)
 
 ```bash
-npm install -g @aivionlabs/qa
+npm install -g aivion-qa
 aivion-qa install-browsers        # one-time ~300MB Chromium download
 ```
 
