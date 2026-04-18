@@ -1,6 +1,6 @@
 # aivion-qa
 
-**Local-first, AI-optional, end-to-end QA for web apps with Clerk auth + Postgres.**
+**Local-first, AI-optional, end-to-end QA for web apps. Postgres-backed, plug-in auth.**
 Write YAML plans. Run Playwright. Get a report. No cloud, no dashboard, no per-run LLM tax.
 
 ```bash
@@ -21,7 +21,7 @@ Every AI QA tool shipped today is cloud-hosted with a recorder or proprietary DS
 - **Local-first.** Runs on your machine against your stack. Reports stay on disk.
 - **YAML-only plans.** Zero DSL, zero compile step, no LLM cost for reading plans.
 - **Zero LLM by default.** Playwright + SQL + Zod are enough. LLM is opt-in for fuzzy assertions.
-- **Observe, don't orchestrate.** The tool tests what you have running. It doesn't start your app, configure Clerk, or run migrations.
+- **Observe, don't orchestrate.** The tool tests what you have running. It doesn't start your app, configure your auth provider, or run migrations.
 
 ---
 
@@ -29,7 +29,7 @@ Every AI QA tool shipped today is cloud-hosted with a recorder or proprietary DS
 
 | aivion-qa's job                                             | Your job                                              |
 | ----------------------------------------------------------- | ----------------------------------------------------- |
-| Mint test users via Clerk Backend API                       | Keep Clerk / Auth0 / etc. configured correctly        |
+| Mint test users via your auth provider's admin API          | Keep Clerk / Auth0 / etc. configured correctly        |
 | Query DB for observable state                               | Keep DB migrations applied                            |
 | Drive the browser via Playwright                            | Keep the app running on the expected port             |
 | Intercept browser network calls                             | Keep ngrok / tunnels up if needed                     |
@@ -37,7 +37,7 @@ Every AI QA tool shipped today is cloud-hosted with a recorder or proprietary DS
 | Clean up test data (FK walk + auth admin) after run         | Keep env vars, secrets, and local infra healthy       |
 | Report what it observed in detail                           | Diagnose root cause from the report                   |
 
-Failed tests are signals, not support tickets. If the `users` row doesn't appear after signup, the tool reports *"DB assertion failed after 10s"* with the Clerk user ID and failing SQL — you investigate the webhook pipeline, migration state, or whatever actually broke.
+Failed tests are signals, not support tickets. If the `users` row doesn't appear after signup, the tool reports *"DB assertion failed after 10s"* with the failing SQL — you investigate the webhook pipeline, migration state, or whatever actually broke.
 
 ---
 
@@ -47,7 +47,10 @@ Failed tests are signals, not support tickets. If the `users` row doesn't appear
 
 - **Node.js** ≥ 20 (Node 24 LTS recommended)
 - **Postgres** reachable from your host (docker-compose with a published port is fine)
-- **Clerk** dev instance with **Test mode** enabled (Dashboard → Settings → Testing)
+- **An auth provider** — see [docs/auth/](docs/README.md#auth-providers) for setup guides:
+  - [Local / in-app auth](docs/auth/local.md) (NextAuth, custom, etc.)
+  - [Clerk](docs/auth/clerk.md) (bundled adapter)
+  - Auth0 / Okta / Supabase — planned
 
 ### Steps
 
@@ -90,30 +93,29 @@ Edit `.aivion-qa/qa.config.yaml`:
 ```yaml
 baseUrls:
   app: http://localhost:3000
-  api: http://localhost:8000
+  api: http://localhost:8000        # optional additional URLs
 
-auth:
-  provider: clerk
-  secretKeyEnv: CLERK_SECRET_KEY
+# Auth — see docs/auth/ for your provider:
+#   docs/auth/local.md  (in-app auth — omit this block)
+#   docs/auth/clerk.md  (Clerk — uncomment below)
+#
+# auth:
+#   provider: clerk
+#   secretKeyEnv: CLERK_SECRET_KEY
 
 db:
   connectionStringEnv: DATABASE_URL
-  userTable: users                 # FK-walk root + auto cleanup anchor
+  userTable: users                  # FK-walk root + auto cleanup anchor
   userEmailColumn: email
-  # cleanupExcludeTables:          # optional — tables to skip during cleanup
+  # cleanupExcludeTables:           # optional — tables to skip during cleanup
   #   - audit_logs
 
 ai:
-  mode: off                         # default — no LLM
-  # mode: claude_cli                # enable for ai_check + end-of-run summary
+  mode: off                          # default — no LLM
+  # mode: claude_cli                 # enable for ai_check + end-of-run summary
 ```
 
-Create `.env` from `.env.example`:
-
-```env
-CLERK_SECRET_KEY=sk_test_...
-DATABASE_URL=postgresql://user:pass@localhost:5432/your_db
-```
+Create `.env` from `.env.example` and add your provider-specific secrets (see the relevant auth guide).
 
 ### 3. Verify
 
@@ -121,12 +123,12 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/your_db
 aivion-qa doctor
 ```
 
-You'll see:
+Example output:
 ```
 [✓] app: http://localhost:3000 (404)
 [✓] api: http://localhost:8000 (200)
 [✓] database: connected (SELECT 1)
-[✓] clerk: API key valid
+[✓] clerk: API key valid              # or skipped if you don't use Clerk
 [✓] playwright chromium: installed
 ```
 
@@ -142,30 +144,18 @@ Walks `information_schema`, builds a FK graph, writes `.aivion-qa/schema.json`. 
 
 ### 5. Author your first plan
 
-Create `.aivion-qa/plans/base.yaml` (shared fixture every plan inherits):
+The shape of `base.yaml` depends on your auth provider. Follow the guide for yours:
 
-```yaml
-setup:
-  cleanupUserData: true                 # FK-walk delete before any case
-  auth:
-    createUser:
-      email: "{{meta.test_user.email}}"
-      via: clerk
-  signIn: ticket                         # programmatic Clerk sign-in
+- **[docs/auth/local.md](docs/auth/local.md)** — in-app auth (NextAuth, custom, etc.)
+- **[docs/auth/clerk.md](docs/auth/clerk.md)** — Clerk
 
-teardown:
-  cleanupUserData: true                  # FK-walk delete on exit
-  auth:
-    cleanupUser: "{{meta.test_user.email}}"
-```
-
-And `.aivion-qa/plans/smoke.yaml`:
+Minimal non-provider-specific plan skeleton (drop in `.aivion-qa/plans/smoke.yaml`):
 
 ```yaml
 meta:
   plan: smoke
   testUser:
-    email: "test+clerk_test+{run_id}@example.com"
+    email: "qa+{run_id}@example.test"
     password: "QaTool-{run_id}-Run!"
   environments:
     app: http://localhost:3000
@@ -181,6 +171,8 @@ cases:
       - type: user_has_row_in
         table: users
 ```
+
+The `setup` + `teardown` (sign-in, user create/delete) go in `base.yaml` and are inherited — see the auth guides for the right shape.
 
 ### 6. Run
 
@@ -198,8 +190,8 @@ Report lands in `.aivion-qa/reports/<timestamp>_smoke/report.md`.
 
 ```
 1. Pre-run cleanup    FK-walk delete of any stale test-user data
-2. Create test user   Clerk Backend API POST /users (with unique +{run_id} email)
-3. Sign in            Mode-dependent: ticket (default) | ui | none | custom signInFlow
+2. Create test user   via auth provider admin API (if configured) OR via your /signup UI
+3. Sign in            Mode-dependent: ticket (provider) | ui | none | custom signInFlow
 4. Run cases          Execute actions + asserts per case
 5. Teardown           FK-walk delete + auth cleanup (runs even on failure)
 ```
@@ -210,13 +202,14 @@ Every run gets a unique `run_id` injected into the test email and password:
 
 ```yaml
 testUser:
-  email: "test+clerk_test+{run_id}@example.com"    # unique every run
-  password: "QaTool-{run_id}-Run!"                  # unique every run, HIBP-safe
+  email: "qa+{run_id}@example.test"       # unique every run
+  password: "QaTool-{run_id}-Run!"         # unique every run
 ```
 
 - **Email uniqueness** — avoids "user already exists" collisions on reruns, allows parallel runs.
-- **`+clerk_test` subaddress** — Clerk's test-mode bypasses real email verification (uses code `424242` internally, but the ticket sign-in skips that entirely).
-- **Password uniqueness** — Clerk's frontend runs HIBP breach checks on every sign-in, which rejects static common passwords.
+- **Password uniqueness** — some providers (e.g. Clerk) run HIBP breach checks on every login and reject static common passwords.
+
+Provider-specific email formats (e.g. Clerk's `+clerk_test` subaddress) are documented in [docs/auth/](docs/README.md#auth-providers).
 
 ### Section hierarchy
 
@@ -298,7 +291,7 @@ Authored plans (`.aivion-qa/plans/*.yaml`) stay tracked.
 
 ```bash
 aivion-qa init                    # scaffold .aivion-qa/, .env.example, gitignore
-aivion-qa doctor                  # verify URLs, DB, Clerk, chromium
+aivion-qa doctor                  # verify URLs, DB, auth provider, chromium
 aivion-qa install-browsers        # one-time Playwright chromium download
 aivion-qa learn                   # analyze DB schema → .aivion-qa/schema.json
 aivion-qa validate <plan>         # Zod-check a plan without running
@@ -321,7 +314,7 @@ Exit code: `0` = all pass (expected-fails excluded), `1` = any real failure.
 meta:
   plan: <short-name>
   testUser:
-    email: "<prefix>+clerk_test+{run_id}@<domain>"
+    email: "<prefix>+{run_id}@<domain>"           # provider-specific format — see docs/auth/
     password: "QaTool-{run_id}-Run!"
   environments:
     app: http://localhost:3000
@@ -482,29 +475,16 @@ Typically defined once in `.aivion-qa/plans/base.yaml` and inherited. Plan value
 
 ### Sign-in modes
 
-**`signIn: ticket` (default, recommended):**
-Server-mints a Clerk sign-in token, navigates to the Accounts Portal URL that activates it. Bypasses HIBP checks, 2FA, device-verification, captcha. Fast, reliable, ~1s.
+| Mode | What it does | When to use |
+|---|---|---|
+| `signIn: ticket` | Provider-specific programmatic sign-in (e.g. Clerk's sign-in token). Bypasses any UI challenges. | Default when your provider supports it. |
+| `signIn: ui` | Drives `/login` with a generic email+password form. | Simple single-step forms only. |
+| `signIn: none` | No auto-login. | The plan's first case handles sign-in itself. |
+| `signInFlow: [actions]` | Custom multi-step sign-in. | Multi-step flows, in-app auth, or testing the sign-in UI itself. |
 
-**`signIn: ui`:**
-Drives `/login` with generic email+password. Only works on simple single-step forms.
+The runner verifies the browser has left any sign-in URL within 15s of the flow finishing; otherwise aborts.
 
-**`signIn: none`:**
-No auto-login. The plan's first case handles sign-in.
-
-**`signInFlow: [actions]`:**
-Custom multi-step sign-in. Example for Clerk's two-step password:
-
-```yaml
-signInFlow:
-  - browser.goto: /sign-in
-  - browser.fill: { selector: 'input[name="identifier"]', value: "{{meta.test_user.email}}" }
-  - browser.click: "Continue"
-  - browser.wait_for: 'input[name="password"]:visible'
-  - browser.fill: { selector: 'input[name="password"]', value: "{{meta.test_user.password}}" }
-  - browser.click: "Continue"
-```
-
-The runner verifies the browser has left any sign-in URL within 15s; otherwise aborts with a clear error.
+**Provider-specific examples** are in the auth guides — see [docs/auth/](docs/README.md#auth-providers).
 
 ---
 
@@ -517,15 +497,17 @@ baseUrls:
   app: http://localhost:3000
   api: http://localhost:8000        # any number of named URLs
 
-auth:
-  provider: clerk                    # only "clerk" in MVP
-  secretKeyEnv: CLERK_SECRET_KEY     # env var name, not the value
+# Auth — provider-specific; see docs/auth/:
+#   Omit this block entirely for local in-app auth.
+# auth:
+#   provider: clerk
+#   secretKeyEnv: CLERK_SECRET_KEY
 
 db:
   connectionStringEnv: DATABASE_URL
   userTable: users                   # FK anchor + auto cleanup root
   userEmailColumn: email
-  cleanupExcludeTables:              # optional
+  cleanupExcludeTables:               # optional
     - audit_logs
     - billing_events
 
@@ -547,8 +529,9 @@ ai:
 ### `.env`
 
 ```env
-CLERK_SECRET_KEY=sk_test_...
 DATABASE_URL=postgresql://user:pass@localhost:5432/your_db
+# Provider-specific secrets — see docs/auth/ for what your provider needs:
+# CLERK_SECRET_KEY=sk_test_...
 # ANTHROPIC_API_KEY=sk-ant-...       # only if ai.mode = sdk with anthropic
 ```
 
@@ -569,22 +552,6 @@ Your `DATABASE_URL` uses a Docker service name like `postgres` — not resolvabl
 DATABASE_URL=postgresql://user:pass@localhost:5432/your_db
 ```
 
-### `Clerk createUser failed: Password has been found in an online data breach`
-
-Your `meta.testUser.password` is on HIBP. Use the `{run_id}` marker:
-```yaml
-password: "QaTool-{run_id}-Run!"
-```
-
-### Sign-in redirects to Clerk's `accounts.dev` and stays there
-
-The ticket-based sign-in failed. Confirm:
-1. Clerk **Test mode** is enabled (Dashboard → Settings → Testing)
-2. `setup.auth.createUser` ran successfully (check run log)
-3. `setup.signIn: ticket` is set in `base.yaml`
-
-Run `aivion-qa doctor` to verify the Clerk key still has admin permissions.
-
 ### `locator.click: Timeout 10000ms exceeded`
 
 The selector didn't match. Run with `--headed`, open devtools, confirm the actual selector. For text-based clicks, the target must be EXACT (no "Continue" matching "Sign in with Google Continue").
@@ -593,9 +560,15 @@ The selector didn't match. Run with `--headed`, open devtools, confirm the actua
 
 Either the FK path the tool found is wrong (rare — double-check your schema), or the app genuinely didn't create the row. Inspect `.aivion-qa/schema.json` to see the FK graph, or drop back to a raw `db_eventually` with explicit SQL.
 
-### Test user piling up in Clerk dashboard after crashed runs
+### `Template reference {{...}} is not resolved`
 
-Teardown failed mid-run. Next run's `cleanupUserData` will clean up the DB side; Clerk side is harmless (teardown's `auth.cleanupUser` handles it on the next successful run, or you can delete them manually — they never conflict with new runs since each run uses a unique email).
+Either the reference path is wrong, or the case that should have populated it didn't run. Check the log — `context.<key>` only populates after a prior assert ran `storeAs: context.<key>`.
+
+### Provider-specific issues
+
+See the auth guide for your provider:
+- [docs/auth/local.md](docs/auth/local.md) — in-app auth
+- [docs/auth/clerk.md](docs/auth/clerk.md) — Clerk (HIBP, test mode, 2FA, sign-in ticket)
 
 ---
 
@@ -608,7 +581,7 @@ Teardown failed mid-run. Next run's `cleanupUserData` will clean up the DB side;
 | Default (`ai.mode: off`)         | Zero data leaves your machine.                                           |
 | `ai.mode: claude_cli`            | Prompts pass through your local Claude Code install — per its own terms. |
 | `ai.mode: sdk`                   | Prompts (DOM snippets, screenshots) go to the provider you configure.    |
-| Auth provider (Clerk) API calls  | Test-user create/delete — direct from your host to Clerk with your key.  |
+| Auth provider API calls          | Test-user create/delete — direct from your host to the provider with your key. |
 | Database queries                 | Direct from your host to your DB.                                        |
 | Reports                          | Written to `.aivion-qa/reports/` on your disk. Nothing uploaded.         |
 
