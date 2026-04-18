@@ -1,6 +1,6 @@
 {
   "name": "aivion-qa",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local-first, AI-optional QA tool — YAML plans, Playwright, SQL, Clerk",
   "keywords": ["qa", "e2e", "testing", "playwright", "clerk", "yaml", "local-first"],
   "homepage": "https://aivionlabs.com",

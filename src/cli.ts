@@ -160,11 +160,24 @@ cli.command("install-browsers", "Download Playwright's Chromium (~300MB, one-tim
   .action(async () => {
     const { spawnSync } = await import("node:child_process");
     const { createRequire } = await import("node:module");
-    // Resolve the playwright CLI bundled inside this package. Running it via
-    // `node <path>` avoids `npx` (which warns "no playwright found" when the
-    // caller's cwd has no package.json).
+    const { dirname, join } = await import("node:path");
+
+    // Playwright restricts `./cli.js` in its package `exports` field, so we
+    // can't use `require.resolve("playwright/cli.js")`. Instead resolve the
+    // main entry, walk up to the package root, and join `cli.js` directly.
     const req = createRequire(import.meta.url);
-    const playwrightCli = req.resolve("playwright/cli.js");
+    const mainEntry = req.resolve("playwright");
+    let pkgDir = dirname(mainEntry);
+    while (!existsSync(join(pkgDir, "package.json"))) {
+      const parent = dirname(pkgDir);
+      if (parent === pkgDir) {
+        console.error("Could not locate playwright package root. Please file a bug.");
+        process.exit(1);
+      }
+      pkgDir = parent;
+    }
+    const playwrightCli = join(pkgDir, "cli.js");
+
     const result = spawnSync(process.execPath, [playwrightCli, "install", "chromium"], {
       stdio: "inherit",
     });

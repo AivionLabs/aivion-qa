@@ -19,3 +19,4 @@ reports/
 
 # internal design notes — not for public repo
 doc/
+*.tgz
