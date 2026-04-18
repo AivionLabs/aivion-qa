@@ -2,6 +2,7 @@
 import { cac } from "cac";
 import { join, resolve as resolvePath, basename } from "node:path";
 import { existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { IR } from "./types.js";
 import { irSchema } from "./schemas.js";
@@ -514,6 +515,10 @@ teardown:
     cleanupUser: "{{meta.test_user.email}}"
 `;
 
+// Read version from our own package.json so it can't drift from the tag.
+const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
+const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version: string };
+
 cli.help();
-cli.version("0.1.0");
+cli.version(pkg.version);
 cli.parse();
