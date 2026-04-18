@@ -1,6 +1,13 @@
 # aivion-qa docs
 
-Per-topic guides. The main [`README.md`](../README.md) at the repo root covers install + generic usage; these dive into provider- and stack-specific details.
+Main [README](../README.md) covers install + quick start. These guides go deep on specific topics.
+
+## Guides
+
+| Topic | Doc |
+|---|---|
+| **Plan YAML reference** — full spec for `.aivion-qa/plans/*.yaml` | [plan-reference.md](plan-reference.md) |
+| **Troubleshooting** — common errors and fixes | [troubleshooting.md](troubleshooting.md) |
 
 ## Auth providers
 
@@ -15,7 +22,3 @@ How to wire `aivion-qa` to your auth layer.
 | Supabase | 🚧 planned v0.2 | — |
 
 If your provider isn't listed, use the [local pattern](auth/local.md) — skip the adapter, drive the login UI in `setup.signInFlow`.
-
-## Other topics
-
-- *(None yet. Open an issue if something's missing.)*
