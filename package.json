@@ -1,0 +1,57 @@
+{
+  "name": "@aivionlabs/qa",
+  "version": "0.1.0",
+  "description": "Local-first, AI-optional QA tool — YAML plans, Playwright, SQL, Clerk",
+  "keywords": ["qa", "e2e", "testing", "playwright", "clerk", "yaml", "local-first"],
+  "homepage": "https://aivionlabs.com",
+  "license": "MIT",
+  "author": "Aivion Labs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AivionLabs/aivion-qa.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AivionLabs/aivion-qa/issues",
+    "email": "security@aivionlabs.com"
+  },
+  "type": "module",
+  "bin": {
+    "aivion-qa": "./dist/cli.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.12",
+    "ai": "^4.3.16",
+    "cac": "^6.7.14",
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.3",
+    "playwright": "^1.52.0",
+    "yaml": "^2.7.1",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/pg": "^8.11.13",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

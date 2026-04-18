@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.js.map
+*.tsbuildinfo
+
+.env
+.env.local
+
+# local-run artifacts (if you dogfood aivion-qa on this repo)
+reports/
+.aivion-qa/
+.qa-tool/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# internal design notes — not for public repo
+doc/
