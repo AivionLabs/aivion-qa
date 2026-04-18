@@ -2,7 +2,7 @@
 
 export interface QaConfig {
   baseUrls: Record<string, string>;   // { app: "http://localhost:3000", api: "..." }
-  auth: {
+  auth?: {
     provider: "clerk";
     secretKeyEnv: string;             // env var name holding the secret key
   };

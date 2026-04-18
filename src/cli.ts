@@ -103,18 +103,22 @@ cli.command("doctor", "Verify connectivity: URL, DB, Clerk").action(async () => 
     ok = false;
   }
 
-  // Check Clerk
-  try {
-    const key = process.env[config.auth.secretKeyEnv];
-    if (!key) throw new Error(`${config.auth.secretKeyEnv} not set`);
-    const res = await fetch("https://api.clerk.com/v1/users?limit=1", {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    console.log(`  [✓] clerk: API key valid`);
-  } catch (err) {
-    console.log(`  [✗] clerk: ${(err as Error).message}`);
-    ok = false;
+  // Check auth provider (only if configured)
+  if (!config.auth) {
+    console.log(`  [—] auth: not configured (local / in-app auth)`);
+  } else if (config.auth.provider === "clerk") {
+    try {
+      const key = process.env[config.auth.secretKeyEnv];
+      if (!key) throw new Error(`${config.auth.secretKeyEnv} not set`);
+      const res = await fetch("https://api.clerk.com/v1/users?limit=1", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      console.log(`  [✓] clerk: API key valid`);
+    } catch (err) {
+      console.log(`  [✗] clerk: ${(err as Error).message}`);
+      ok = false;
+    }
   }
 
   // Check Playwright browsers
@@ -154,14 +158,17 @@ cli.command("doctor", "Verify connectivity: URL, DB, Clerk").action(async () => 
 cli.command("install-browsers", "Download Playwright's Chromium (~300MB, one-time)")
   .action(async () => {
     const { spawnSync } = await import("node:child_process");
-    console.log("Running: npx playwright install chromium");
-    const result = spawnSync("npx", ["playwright", "install", "chromium"], {
+    const { createRequire } = await import("node:module");
+    // Resolve the playwright CLI bundled inside this package. Running it via
+    // `node <path>` avoids `npx` (which warns "no playwright found" when the
+    // caller's cwd has no package.json).
+    const req = createRequire(import.meta.url);
+    const playwrightCli = req.resolve("playwright/cli.js");
+    const result = spawnSync(process.execPath, [playwrightCli, "install", "chromium"], {
       stdio: "inherit",
-      shell: false,
     });
     if (result.status !== 0) {
-      console.error(`\nBrowser install failed (exit ${result.status}). ` +
-        `You can also run directly: npx playwright install chromium`);
+      console.error(`\nBrowser install failed (exit ${result.status}).`);
       process.exit(result.status ?? 1);
     }
     console.log("\nChromium installed. Run `aivion-qa doctor` to verify.");
@@ -418,9 +425,13 @@ baseUrls:
   app: http://localhost:3000
   # api: http://localhost:8000   # uncomment if you have a separate API server
 
-auth:
-  provider: clerk
-  secretKeyEnv: CLERK_SECRET_KEY   # env var name (not the value)
+# Auth — provider-specific, see docs/auth/:
+#   local (in-app): omit this block entirely
+#   clerk:          uncomment below (and see docs/auth/clerk.md)
+#
+# auth:
+#   provider: clerk
+#   secretKeyEnv: CLERK_SECRET_KEY   # env var name (not the value)
 
 db:
   connectionStringEnv: DATABASE_URL  # env var name (not the value)

@@ -92,7 +92,7 @@ export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
 
   try {
     // ── Phase C.1: Prepare ───────────────────────────────────────────────────
-    if (config.auth.provider === "clerk") {
+    if (config.auth?.provider === "clerk") {
       ctx.auth = createClerkAdapter(config.auth.secretKeyEnv);
     }
     ctx.db = createPostgresAdapter(config.db.connectionStringEnv);

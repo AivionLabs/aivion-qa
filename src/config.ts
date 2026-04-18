@@ -60,9 +60,20 @@ function normalizeConfig(raw: Record<string, unknown>): QaConfig {
     throw new Error("qa.config.yaml: baseUrls must be a map of name → URL");
   }
 
-  const authRaw = (raw.auth ?? {}) as Record<string, string>;
-  if (authRaw.provider !== "clerk") {
-    throw new Error("qa.config.yaml: auth.provider must be 'clerk' (only provider in MVP)");
+  // auth is optional — local/in-app auth setups omit it entirely.
+  let auth: QaConfig["auth"] | undefined;
+  if (raw.auth) {
+    const authRaw = raw.auth as Record<string, string>;
+    if (authRaw.provider !== "clerk") {
+      throw new Error(
+        `qa.config.yaml: auth.provider must be 'clerk' (only provider in v0.1). ` +
+        `For local in-app auth, omit the auth block entirely — see docs/auth/local.md.`,
+      );
+    }
+    auth = {
+      provider: "clerk",
+      secretKeyEnv: (authRaw.secretKeyEnv ?? authRaw.secret_key_env ?? "CLERK_SECRET_KEY") as string,
+    };
   }
 
   const dbRaw = (raw.db ?? {}) as Record<string, unknown>;
@@ -72,10 +83,7 @@ function normalizeConfig(raw: Record<string, unknown>): QaConfig {
 
   return {
     baseUrls: urls,
-    auth: {
-      provider: "clerk",
-      secretKeyEnv: (authRaw.secretKeyEnv ?? authRaw.secret_key_env ?? "CLERK_SECRET_KEY") as string,
-    },
+    auth,
     db: {
       connectionStringEnv: (dbRaw.connectionStringEnv ?? dbRaw.connection_string_env ?? "DATABASE_URL") as string,
       userTable: (dbRaw.userTable ?? dbRaw.user_table ?? "users") as string,
