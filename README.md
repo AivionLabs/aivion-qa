@@ -160,4 +160,4 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 ## Contributing
 
 Bug reports: https://github.com/AivionLabs/aivion-qa/issues
-Security: `security@aivionlabs.com`
+Security: `hello@aivionlabs.com`
