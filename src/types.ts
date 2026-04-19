@@ -54,6 +54,9 @@ export interface IRMeta {
     password?: string;
   };
   environments: Record<string, string>;
+  /** Optional ISO timestamp injected as X-QA-Now header + __qa_now cookie.
+   *  Backend must opt-in (gate by NODE_ENV=test) to honor it. */
+  fakeNow?: string;
 }
 
 export interface IRSetup {

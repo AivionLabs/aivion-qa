@@ -18,6 +18,7 @@ export const irSchema = z
           })
           .passthrough(),
         environments: z.record(z.any()),
+        fakeNow: z.string().optional(),
       })
       .passthrough(),
     setup: z

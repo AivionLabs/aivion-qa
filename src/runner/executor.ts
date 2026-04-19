@@ -12,10 +12,12 @@ import { buildFkGraph, computeDeleteOrder, buildUserScope, type FkGraph } from "
 import type { SchemaAnalysis, DbAdapter } from "../types.js";
 import {
   launchBrowser, goto, click, fill, submit, waitFor, pressKey, dragTo,
+  hover, uploadFile, installInterceptor,
   expectText, expectUrl, expectVisible, expectNotVisible, expectDisabled, expectAttribute,
   armDownloadWatcher, captureScreenshot, closeBrowser, watchNetwork,
   type BrowserSession,
 } from "./browser.js";
+import { screenshotDiff } from "./screenshot-diff.js";
 import { httpRequest } from "./http.js";
 import { runAiCheck } from "./ai-check.js";
 import { resolve, resolveParams } from "./template.js";
@@ -35,6 +37,8 @@ export interface ExecuteOptions {
   planName: string;
   failFast?: boolean;
   headless?: boolean;
+  /** Force-write every expect_screenshot baseline this run. */
+  updateSnapshots?: boolean;
 }
 
 export interface ExecuteResult {
@@ -44,7 +48,7 @@ export interface ExecuteResult {
 }
 
 export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
-  const { ir, config, reportsDir, qaToolDir, planName, failFast = false, headless = true } = opts;
+  const { ir, config, reportsDir, qaToolDir, planName, failFast = false, headless = true, updateSnapshots = false } = opts;
 
   const runId = generateRunId();
   const startedAt = new Date().toISOString();
@@ -83,6 +87,11 @@ export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
     return lazyGraph;
   };
   (ctx as unknown as { getGraph: () => FkGraph | undefined }).getGraph = getGraph;
+
+  // Stash snapshot config for the expect_screenshot assert.
+  (ctx as unknown as { snapshotsDir: string; updateSnapshots: boolean }).snapshotsDir =
+    join(qaToolDir, "snapshots", planName);
+  (ctx as unknown as { snapshotsDir: string; updateSnapshots: boolean }).updateSnapshots = updateSnapshots;
 
   const results: CaseResult[] = [];
   let browser: BrowserSession | undefined;
@@ -136,6 +145,23 @@ export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
     // Install auth plumbing (Clerk testing-token interception for bot bypass).
     if (ctx.auth) {
       await ctx.auth.applyToContext(browser.context);
+    }
+
+    // Time pinning — inject fake "now" via cookie + X-QA-Now header. Backend
+    // must opt-in (e.g. only honor when NODE_ENV=test). Both are sent so the
+    // app can pick whichever is convenient.
+    const fakeNow = (ir.meta as IR["meta"] & { fakeNow?: string }).fakeNow;
+    if (fakeNow) {
+      await browser.context.setExtraHTTPHeaders({ "X-QA-Now": fakeNow });
+      const appUrl = Object.values(meta.environments)[0] ?? "http://localhost:3000";
+      const host = new URL(appUrl).hostname;
+      await browser.context.addCookies([{
+        name: "__qa_now",
+        value: fakeNow,
+        domain: host,
+        path: "/",
+      }]);
+      console.log(`Time pinned to ${fakeNow} (X-QA-Now header + __qa_now cookie)`);
     }
 
     if (ir.setup?.signInFlow && preCreatedUserId) {
@@ -472,6 +498,32 @@ async function runAction(action: IRAction, browser: BrowserSession, ctx: RunCont
     return;
   }
 
+  if ("browser.hover" in raw) {
+    await hover(browser.page, resolve(raw["browser.hover"] as string, ctx));
+    return;
+  }
+
+  if ("browser.upload_file" in raw) {
+    const spec = raw["browser.upload_file"] as { selector: string; file: string | string[] };
+    const files = Array.isArray(spec.file) ? spec.file : [spec.file];
+    const resolved = files.map((f) => resolve(f, ctx));
+    await uploadFile(browser.page, resolve(spec.selector, ctx), resolved);
+    return;
+  }
+
+  if ("http.intercept" in raw) {
+    const spec = raw["http.intercept"] as {
+      pattern: string; status?: number; body?: unknown; contentType?: string; headers?: Record<string, string>;
+    };
+    await installInterceptor(browser.context, resolve(spec.pattern, ctx), {
+      status: spec.status,
+      body: spec.body,
+      contentType: spec.contentType,
+      headers: spec.headers,
+    });
+    return;
+  }
+
   if ("browser.capture_url" in raw) {
     const spec = raw["browser.capture_url"] as { pattern: string; as: string };
     const currentUrl = browser.page.url();
@@ -732,6 +784,23 @@ async function runAssert(
     return {
       type: "expect_download", pass: false,
       detail: "expect_download must be the first assert in a case; no download was captured.",
+    };
+  }
+
+  if (a.type === "expect_screenshot") {
+    const name = a.name as string;
+    if (!name) return { type: "expect_screenshot", pass: false, detail: "expect_screenshot requires a 'name'" };
+    const snapDir = (ctx as unknown as { snapshotsDir: string }).snapshotsDir;
+    const updateMode = (ctx as unknown as { updateSnapshots: boolean }).updateSnapshots;
+    const result = await screenshotDiff(browser.page, {
+      baselinePath: join(snapDir, name),
+      artifactsDir: screenshotsDir,
+      threshold: typeof a.threshold === "number" ? a.threshold : undefined,
+      selector: typeof a.selector === "string" ? resolve(a.selector, ctx) : undefined,
+      updateBaseline: updateMode === true,
+    });
+    return {
+      type: "expect_screenshot", pass: result.pass, detail: result.detail,
     };
   }
 

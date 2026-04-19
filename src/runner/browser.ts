@@ -65,6 +65,42 @@ export async function dragTo(page: Page, fromSelector: string, toSelector: strin
   await page.locator(fromSelector).dragTo(page.locator(toSelector), { timeout: 15_000 });
 }
 
+/** Hover over an element — useful for hover-reveal UI. */
+export async function hover(page: Page, selector: string): Promise<void> {
+  await page.locator(selector).hover({ timeout: 10_000 });
+}
+
+/** Set the file(s) on a file input. Path is relative to the project root
+ *  (the dir containing `.aivion-qa/`) unless absolute. */
+export async function uploadFile(page: Page, selector: string, filePaths: string | string[]): Promise<void> {
+  const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
+  await page.locator(selector).setInputFiles(paths);
+}
+
+/** Install a route handler that fulfills any matching request with the
+ *  given response. Persists for the rest of the run (Playwright's `page.route`
+ *  is context-level; we add at context to capture all pages). */
+export async function installInterceptor(
+  ctx: BrowserContext,
+  pattern: string,
+  response: { status?: number; body?: unknown; contentType?: string; headers?: Record<string, string> },
+): Promise<void> {
+  await ctx.route(pattern, async (route) => {
+    const status = response.status ?? 200;
+    const contentType = response.contentType
+      ?? (typeof response.body === "object" ? "application/json" : "text/plain");
+    const body = typeof response.body === "object"
+      ? JSON.stringify(response.body)
+      : (response.body ?? "");
+    await route.fulfill({
+      status,
+      contentType,
+      headers: response.headers,
+      body: String(body),
+    });
+  });
+}
+
 export async function expectText(page: Page, text: string, selector?: string): Promise<boolean> {
   try {
     if (selector) {

@@ -39,6 +39,7 @@ The URL in `groups[].url` becomes an implicit `browser.goto` prepended to every 
 | `testUser.password` | include `{run_id}` — avoids breach-list rejections on login |
 | `environments.app` | base URL of the app |
 | `environments.<name>` | any additional URLs — reference as `{{meta.environments.<name>}}` |
+| `fakeNow` | optional ISO timestamp (e.g. `"2026-05-10T00:00:00Z"`). Injected as `X-QA-Now` header + `__qa_now` cookie on every request. **Requires backend cooperation:** the app must read the header (gated by `NODE_ENV=test`) and treat it as "now." Critical for trial-expiry / time-window tests without waiting real days. |
 
 ## Cases
 
@@ -81,9 +82,12 @@ Case IDs are `<section>.<case>` (e.g. `1.1`, `3.4`).
 | `browser.wait_for` | string | Wait up to 15s for a selector. |
 | `browser.press_key` | string | Press one or more keys. Playwright key syntax: `"Enter"`, `"Escape"`, `"Control+Shift+P"`, `"Meta+K"`. |
 | `browser.drag_to` | `{ from, to }` | Drag from one selector to another. Both must be visible + actionable. |
+| `browser.hover` | string | Hover over an element. For hover-reveal UI (e.g. `opacity-0 group-hover:opacity-100`). |
+| `browser.upload_file` | `{ selector, file }` | Set file(s) on a `<input type="file">`. `file` is a path string or array of paths (relative to project root). |
 | `browser.capture_url` | `{ pattern, as }` | Regex against `page.url()`; store capture group into context. |
 | `http.post` | `{ url, auth?, body? }` | Direct POST. `auth: session` forwards browser cookies. |
 | `http.get` | `{ url, auth? }` | Direct GET. |
+| `http.intercept` | `{ pattern, status?, body?, contentType?, headers? }` | Stub a response for any request matching `pattern` (Playwright glob). Persists for the rest of the run. Use to fake external services (e.g. Glances) in CI. |
 
 HTTP status of the most recent `http.*` action is stashed for the next `http_status` assert in the same case.
 
@@ -103,6 +107,7 @@ All have a `type` discriminator.
 | `expect_attribute` | `{ selector, attr, value? \| pattern? }` |
 | `expect_download` | `{ filename_pattern? }` — arm BEFORE the triggering action |
 | `expect_modal` | `{ kind }` — matches element by `data-testid`/class/`aria-label`/text containing kind |
+| `expect_screenshot` | `{ name, selector?, threshold? }` — pixel-diff against `.aivion-qa/snapshots/<plan>/<name>`. First run creates baseline; subsequent runs compare. Use `--update-snapshots` to regenerate. |
 
 ### Network
 

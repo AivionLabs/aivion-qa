@@ -216,7 +216,8 @@ cli.command("run [plan]", "Execute a YAML plan")
   .option("--all", "Run all YAML plans in plans/")
   .option("--fail-fast", "Stop after first failure")
   .option("--headed", "Run browser in headed (non-headless) mode")
-  .action(async (plan: string | undefined, opts: { all?: boolean; failFast?: boolean; headed?: boolean }) => {
+  .option("--update-snapshots", "Overwrite expect_screenshot baselines with current screenshots")
+  .action(async (plan: string | undefined, opts: { all?: boolean; failFast?: boolean; headed?: boolean; updateSnapshots?: boolean }) => {
     const { loadConfig, getProjectRoot } = await import("./config.js");
     const { executeIr } = await import("./runner/executor.js");
     const { writeReport, printReportSummary } = await import("./reporter.js");
@@ -259,6 +260,7 @@ cli.command("run [plan]", "Execute a YAML plan")
         planName,
         failFast: opts.failFast ?? false,
         headless: !opts.headed,
+        updateSnapshots: opts.updateSnapshots ?? false,
       });
 
       const reportPath = await writeReport(report, ir, reportDir, config);
