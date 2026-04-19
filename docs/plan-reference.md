@@ -79,6 +79,8 @@ Case IDs are `<section>.<case>` (e.g. `1.1`, `3.4`).
 | `browser.fill_form` | `{ from: test_user }` | Auto-fill email + password. Tries common selectors (Clerk `identifier`/`emailAddress` + generic `email`/`#email`). |
 | `browser.submit` | `true` | Click first `button[type=submit]`, else press Enter. |
 | `browser.wait_for` | string | Wait up to 15s for a selector. |
+| `browser.press_key` | string | Press one or more keys. Playwright key syntax: `"Enter"`, `"Escape"`, `"Control+Shift+P"`, `"Meta+K"`. |
+| `browser.drag_to` | `{ from, to }` | Drag from one selector to another. Both must be visible + actionable. |
 | `browser.capture_url` | `{ pattern, as }` | Regex against `page.url()`; store capture group into context. |
 | `http.post` | `{ url, auth?, body? }` | Direct POST. `auth: session` forwards browser cookies. |
 | `http.get` | `{ url, auth? }` | Direct GET. |

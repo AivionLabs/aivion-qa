@@ -54,6 +54,17 @@ export async function waitFor(page: Page, selector: string): Promise<void> {
   await page.locator(selector).waitFor({ state: "visible", timeout: 15_000 });
 }
 
+/** Press one or more keys. Accepts Playwright key syntax: "Enter", "Escape",
+ *  "Control+Shift+P", "Meta+K", etc. */
+export async function pressKey(page: Page, key: string): Promise<void> {
+  await page.keyboard.press(key);
+}
+
+/** Drag from one selector to another. Both must be visible + actionable. */
+export async function dragTo(page: Page, fromSelector: string, toSelector: string): Promise<void> {
+  await page.locator(fromSelector).dragTo(page.locator(toSelector), { timeout: 15_000 });
+}
+
 export async function expectText(page: Page, text: string, selector?: string): Promise<boolean> {
   try {
     if (selector) {

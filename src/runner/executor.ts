@@ -11,7 +11,7 @@ import { createPostgresAdapter, pollUntil } from "../adapters/db/postgres.js";
 import { buildFkGraph, computeDeleteOrder, buildUserScope, type FkGraph } from "../fk-graph.js";
 import type { SchemaAnalysis, DbAdapter } from "../types.js";
 import {
-  launchBrowser, goto, click, fill, submit, waitFor,
+  launchBrowser, goto, click, fill, submit, waitFor, pressKey, dragTo,
   expectText, expectUrl, expectVisible, expectNotVisible, expectDisabled, expectAttribute,
   armDownloadWatcher, captureScreenshot, closeBrowser, watchNetwork,
   type BrowserSession,
@@ -458,6 +458,17 @@ async function runAction(action: IRAction, browser: BrowserSession, ctx: RunCont
 
   if ("browser.wait_for" in raw) {
     await waitFor(browser.page, resolve(raw["browser.wait_for"] as string, ctx));
+    return;
+  }
+
+  if ("browser.press_key" in raw) {
+    await pressKey(browser.page, resolve(raw["browser.press_key"] as string, ctx));
+    return;
+  }
+
+  if ("browser.drag_to" in raw) {
+    const spec = raw["browser.drag_to"] as { from: string; to: string };
+    await dragTo(browser.page, resolve(spec.from, ctx), resolve(spec.to, ctx));
     return;
   }
 
