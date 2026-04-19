@@ -90,7 +90,7 @@ aivion-qa doctor                  # verify URLs, DB, auth provider, chromium
 aivion-qa install-browsers        # one-time Playwright chromium download
 aivion-qa learn                   # analyze DB schema → .aivion-qa/schema.json
 aivion-qa validate <plan>         # Zod-check a plan without running
-aivion-qa run <plan> [--headed] [--fail-fast]
+aivion-qa run <plan> [--headed] [--fail-fast] [--only 1,3.2]
 aivion-qa run --all               # every plan in .aivion-qa/plans/
 aivion-qa report [path]           # print latest (or specific) report
 ```

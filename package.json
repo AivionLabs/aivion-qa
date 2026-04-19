@@ -1,6 +1,6 @@
 {
   "name": "aivion-qa",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local-first, AI-optional QA tool — YAML plans, Playwright, SQL, Clerk",
   "keywords": [
     "qa",

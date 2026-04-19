@@ -26,6 +26,24 @@ export function resolveParams(params: unknown[], ctx: RunContext): unknown[] {
   });
 }
 
+/** Walk a value and template-resolve every string. Use for http bodies,
+ *  header maps, and other arbitrarily-shaped objects users may template. */
+export function resolveDeep<T = unknown>(value: T, ctx: RunContext): T {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return (value.includes("{{") ? resolve(value, ctx) : value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => resolveDeep(v, ctx)) as unknown as T;
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = resolveDeep(v, ctx);
+    return out as T;
+  }
+  return value;
+}
+
 function getPath(path: string, ctx: RunContext): unknown {
   const parts = path.split(".");
   const head = parts[0];

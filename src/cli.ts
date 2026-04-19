@@ -217,7 +217,8 @@ cli.command("run [plan]", "Execute a YAML plan")
   .option("--fail-fast", "Stop after first failure")
   .option("--headed", "Run browser in headed (non-headless) mode")
   .option("--update-snapshots", "Overwrite expect_screenshot baselines with current screenshots")
-  .action(async (plan: string | undefined, opts: { all?: boolean; failFast?: boolean; headed?: boolean; updateSnapshots?: boolean }) => {
+  .option("--only <ids>", "Comma-separated case ids/sections to run. '1' = all 1.x cases; '1.2' = only 1.2; '1,3.2' = both")
+  .action(async (plan: string | undefined, opts: { all?: boolean; failFast?: boolean; headed?: boolean; updateSnapshots?: boolean; only?: string | number }) => {
     const { loadConfig, getProjectRoot } = await import("./config.js");
     const { executeIr } = await import("./runner/executor.js");
     const { writeReport, printReportSummary } = await import("./reporter.js");
@@ -252,6 +253,12 @@ cli.command("run [plan]", "Execute a YAML plan")
 
       const ir = loadIrFromDisk(planPath);
 
+      // cac auto-coerces numeric-looking values (`--only 3.5` → 3.5 number).
+      // Force-stringify so single-id filters keep their dotted form intact.
+      const onlyFilters = opts.only !== undefined && opts.only !== ""
+        ? String(opts.only).split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+
       const { report, reportDir } = await executeIr({
         ir,
         config,
@@ -261,6 +268,7 @@ cli.command("run [plan]", "Execute a YAML plan")
         failFast: opts.failFast ?? false,
         headless: !opts.headed,
         updateSnapshots: opts.updateSnapshots ?? false,
+        only: onlyFilters,
       });
 
       const reportPath = await writeReport(report, ir, reportDir, config);

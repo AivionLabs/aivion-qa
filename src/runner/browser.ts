@@ -70,6 +70,19 @@ export async function hover(page: Page, selector: string): Promise<void> {
   await page.locator(selector).hover({ timeout: 10_000 });
 }
 
+/** Evaluate a JS expression in the page context, return the result. The
+ *  expression is wrapped in `(async () => (<expr>))()` so users can write
+ *  either a sync expression or an awaited async call.
+ *  Examples:
+ *    "localStorage.getItem('accessToken')"
+ *    "await window.Clerk?.session?.getToken()"
+ *    "document.cookie"
+ */
+export async function evalInPage(page: Page, script: string): Promise<unknown> {
+  // Pass as a function-string that Playwright will execute in page context.
+  return page.evaluate(`(async () => (${script}))()`);
+}
+
 /** Set the file(s) on a file input. Path is relative to the project root
  *  (the dir containing `.aivion-qa/`) unless absolute. */
 export async function uploadFile(page: Page, selector: string, filePaths: string | string[]): Promise<void> {

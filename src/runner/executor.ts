@@ -12,7 +12,7 @@ import { buildFkGraph, computeDeleteOrder, buildUserScope, type FkGraph } from "
 import type { SchemaAnalysis, DbAdapter } from "../types.js";
 import {
   launchBrowser, goto, click, fill, submit, waitFor, pressKey, dragTo,
-  hover, uploadFile, installInterceptor,
+  hover, uploadFile, installInterceptor, evalInPage,
   expectText, expectUrl, expectVisible, expectNotVisible, expectDisabled, expectAttribute,
   armDownloadWatcher, captureScreenshot, closeBrowser, watchNetwork,
   type BrowserSession,
@@ -20,7 +20,7 @@ import {
 import { screenshotDiff } from "./screenshot-diff.js";
 import { httpRequest } from "./http.js";
 import { runAiCheck } from "./ai-check.js";
-import { resolve, resolveParams } from "./template.js";
+import { resolve, resolveParams, resolveDeep } from "./template.js";
 
 // Synthetic context key; used to pass HTTP action state to http_status asserts.
 const LAST_HTTP_STATUS = "__last_http_status";
@@ -39,6 +39,11 @@ export interface ExecuteOptions {
   headless?: boolean;
   /** Force-write every expect_screenshot baseline this run. */
   updateSnapshots?: boolean;
+  /** If set, only cases matching one of these ids/sections run. A filter
+   *  without a dot ("1") matches the whole section ("1.1", "1.2", ...).
+   *  A filter with a dot ("1.2") matches that exact id and any deeper
+   *  sub-ids ("1.2", "1.2.1", ...). */
+  only?: string[];
 }
 
 export interface ExecuteResult {
@@ -48,7 +53,7 @@ export interface ExecuteResult {
 }
 
 export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
-  const { ir, config, reportsDir, qaToolDir, planName, failFast = false, headless = true, updateSnapshots = false } = opts;
+  const { ir, config, reportsDir, qaToolDir, planName, failFast = false, headless = true, updateSnapshots = false, only } = opts;
 
   const runId = generateRunId();
   const startedAt = new Date().toISOString();
@@ -164,6 +169,10 @@ export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
       console.log(`Time pinned to ${fakeNow} (X-QA-Now header + __qa_now cookie)`);
     }
 
+    // Stash sign-in config on ctx so auth.sign_in_again can replay it.
+    ctx.signInMode = signInMode as "ui" | "ticket" | "none";
+    ctx.signInFlow = ir.setup?.signInFlow;
+
     if (ir.setup?.signInFlow && preCreatedUserId) {
       console.log("Signing in via custom setup.signInFlow...");
       for (const action of ir.setup.signInFlow) {
@@ -239,7 +248,19 @@ export async function executeIr(opts: ExecuteOptions): Promise<ExecuteResult> {
     const failedSections = new Set<string>();
 
     const allCases = ir.cases ?? [];
-    for (const case_ of allCases) {
+    const filteredCases = only && only.length > 0
+      ? allCases.filter((c) => only.some((f) => caseMatchesFilter(c.id, f)))
+      : allCases;
+
+    if (only && only.length > 0) {
+      const matched = filteredCases.length;
+      console.log(`Filter --only ${only.join(",")} matched ${matched} of ${allCases.length} cases.`);
+      if (matched === 0) {
+        console.log(`  No cases matched. Available ids: ${allCases.slice(0, 10).map((c) => c.id).join(", ")}${allCases.length > 10 ? "..." : ""}`);
+      }
+    }
+
+    for (const case_ of filteredCases) {
       const section = case_.id.split(".")[0] ?? "";
       if (firstSection === undefined) firstSection = section;
 
@@ -511,15 +532,59 @@ async function runAction(action: IRAction, browser: BrowserSession, ctx: RunCont
     return;
   }
 
+  if ("browser.eval" in raw) {
+    const spec = raw["browser.eval"] as { script: string; as?: string };
+    const result = await evalInPage(browser.page, resolve(spec.script, ctx));
+    if (spec.as) {
+      const key = spec.as.replace(/^context\./, "");
+      ctx.context[key] = result;
+    }
+    return;
+  }
+
+  if ("auth.sign_in_again" in raw) {
+    // Re-run whatever sign-in path was configured at run setup.
+    const mode = ctx.signInMode ?? "ticket";
+    if (ctx.signInFlow && ctx.signInFlow.length > 0) {
+      for (const inner of ctx.signInFlow) {
+        await runAction(inner, browser, ctx);
+      }
+      try {
+        await browser.page.waitForURL(
+          (u) => {
+            const s = u.toString();
+            return !s.includes("/sign-in") && !s.includes("/login") && !s.includes("accounts.dev");
+          },
+          { timeout: 15_000 },
+        );
+      } catch {
+        throw new Error(`auth.sign_in_again (signInFlow) didn't leave a sign-in URL within 15s. Current: ${browser.page.url()}`);
+      }
+      return;
+    }
+    if (mode === "ticket" && ctx.auth?.signInViaToken) {
+      let userId = ctx.context["test_user_id"] as string | undefined;
+      if (!userId && ctx.auth.findUserByEmail) {
+        const found = await ctx.auth.findUserByEmail(ctx.meta.testUser.email);
+        userId = found?.userId;
+        if (userId) ctx.context["test_user_id"] = userId;
+      }
+      if (!userId) throw new Error("auth.sign_in_again (ticket) needs a known test user id and couldn't find one.");
+      await ctx.auth.signInViaToken(browser.page, userId);
+      return;
+    }
+    throw new Error(`auth.sign_in_again: no signInFlow stashed and signInMode='${mode}' not supported here. Use setup.signInFlow or setup.signIn=ticket with a Clerk-style adapter.`);
+  }
+
   if ("http.intercept" in raw) {
     const spec = raw["http.intercept"] as {
       pattern: string; status?: number; body?: unknown; contentType?: string; headers?: Record<string, string>;
     };
     await installInterceptor(browser.context, resolve(spec.pattern, ctx), {
       status: spec.status,
-      body: spec.body,
+      body: spec.body !== undefined ? resolveDeep(spec.body, ctx) : undefined,
       contentType: spec.contentType,
-      headers: spec.headers,
+      headers: spec.headers ? resolveDeep(spec.headers, ctx) : undefined,
     });
     return;
   }
@@ -544,24 +609,49 @@ async function runAction(action: IRAction, browser: BrowserSession, ctx: RunCont
     return;
   }
 
-  if ("http.post" in raw || "http.get" in raw) {
-    const method = "http.post" in raw ? "POST" : "GET";
-    const spec = (raw["http.post"] ?? raw["http.get"]) as { url: string; auth?: string; body?: unknown };
+  const httpVerb =
+    "http.post" in raw ? "POST" :
+    "http.get" in raw ? "GET" :
+    "http.put" in raw ? "PUT" :
+    "http.patch" in raw ? "PATCH" :
+    "http.delete" in raw ? "DELETE" :
+    null;
+
+  if (httpVerb) {
+    const key = `http.${httpVerb.toLowerCase()}`;
+    const spec = raw[key] as {
+      url: string;
+      auth?: string;
+      token?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    };
     const url = resolve(spec.url, ctx);
 
-    // Carry the browser session's cookies (populated by the app after sign-in)
-    // so direct API calls share the same auth as the Playwright session.
-    const cookies = spec.auth === "session"
-      ? await browser.context.cookies()
-      : undefined;
+    // Auth modes:
+    //   "session" → forward browser cookies (cookie-based auth, default)
+    //   "bearer"  → set Authorization: Bearer <token>; token is required + template-resolved
+    let cookies: Array<{ name: string; value: string }> | undefined;
+    let bearerToken: string | undefined;
+    if (spec.auth === "session") {
+      cookies = (await browser.context.cookies()).map(c => ({ name: c.name, value: c.value }));
+    } else if (spec.auth === "bearer") {
+      if (!spec.token) {
+        throw new Error(`${key}: auth: bearer requires a 'token' field (e.g. token: "{{context.jwt}}")`);
+      }
+      bearerToken = resolve(spec.token, ctx);
+    }
 
-    const res = await httpRequest(method, url, {
-      body: spec.body,
-      cookies: cookies?.map(c => ({ name: c.name, value: c.value })),
+    const res = await httpRequest(httpVerb, url, {
+      body: spec.body !== undefined ? resolveDeep(spec.body, ctx) : undefined,
+      cookies,
+      token: bearerToken,
+      headers: spec.headers ? resolveDeep(spec.headers, ctx) : undefined,
     });
 
-    // Stash the response for `http_status` asserts later in the same case.
     ctx.context[LAST_HTTP_STATUS] = res.status;
+    // Also stash the response body so users can extract from it later (v0.4 stretch).
+    ctx.context["__last_http_body"] = res.body;
     return;
   }
 
@@ -787,6 +877,48 @@ async function runAssert(
     };
   }
 
+  if (a.type === "expect_context") {
+    const rawKey = (a.key as string | undefined) ?? "";
+    const key = rawKey.replace(/^context\./, "");
+    if (!key) {
+      return { type: "expect_context", pass: false, detail: "expect_context requires a 'key'" };
+    }
+    const actual = ctx.context[key];
+
+    // Three modes: exists (boolean), equals (any value), or matches (regex string)
+    if ("exists" in a) {
+      const want = Boolean(a.exists);
+      const has = actual !== undefined && actual !== null;
+      const pass = has === want;
+      return {
+        type: "expect_context", pass,
+        detail: pass ? undefined : `context.${key} ${has ? "is set" : "is unset"}, expected ${want ? "set" : "unset"}`,
+      };
+    }
+    if ("matches" in a) {
+      const pattern = String(a.matches);
+      const re = (() => { try { return new RegExp(pattern); } catch { return null; } })();
+      if (!re) {
+        return { type: "expect_context", pass: false, detail: `Invalid regex: ${pattern}` };
+      }
+      const pass = re.test(String(actual));
+      return {
+        type: "expect_context", pass,
+        detail: pass ? undefined : `context.${key} = ${JSON.stringify(actual)} doesn't match /${pattern}/`,
+      };
+    }
+    // Default: equals comparison (string-coerced for cross-type tolerance)
+    const expected = a.equals !== undefined ? a.equals : a.value;
+    if (expected === undefined) {
+      return { type: "expect_context", pass: false, detail: "expect_context requires one of: exists, equals, matches" };
+    }
+    const pass = String(actual) === String(expected);
+    return {
+      type: "expect_context", pass,
+      detail: pass ? undefined : `context.${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    };
+  }
+
   if (a.type === "expect_screenshot") {
     const name = a.name as string;
     if (!name) return { type: "expect_screenshot", pass: false, detail: "expect_screenshot requires a 'name'" };
@@ -976,6 +1108,16 @@ async function fillLoginForm(browser: BrowserSession, email: string, password: s
     const el = browser.page.locator(sel).first();
     if (await el.count() > 0) { await el.fill(password); break; }
   }
+}
+
+/** Match a case id against a filter token.
+ *   - exact match: "1.2" matches case "1.2"
+ *   - prefix match: "1" matches "1.1", "1.2.3"; "1.2" matches "1.2.1"
+ *   - never matches across siblings: "1.2" does NOT match "1.20" or "10.2"
+ */
+function caseMatchesFilter(caseId: string, filter: string): boolean {
+  if (caseId === filter) return true;
+  return caseId.startsWith(`${filter}.`);
 }
 
 function generateRunId(): string {

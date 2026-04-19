@@ -217,6 +217,9 @@ export interface RunContext {
   context: ContextBag;
   auth?: AuthAdapter;
   db?: DbAdapter;
+  /** Captured at run setup so the `auth.sign_in_again` action can replay it. */
+  signInMode?: "ui" | "ticket" | "none";
+  signInFlow?: IRAction[];
 }
 
 // ── Report types ─────────────────────────────────────────────────────────────

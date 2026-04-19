@@ -70,6 +70,23 @@ Case IDs are `<section>.<case>` (e.g. `1.1`, `3.4`).
 - Later section fails → rest of THAT section is skipped; next section runs fresh.
 - `--fail-fast` overrides — stops on any failure.
 
+### Filtering with `--only`
+
+Run a subset of cases without editing the plan:
+
+```bash
+aivion-qa run <plan> --only 1       # all 1.x cases (whole section)
+aivion-qa run <plan> --only 1.2     # only 1.2 (and any 1.2.x sub-cases)
+aivion-qa run <plan> --only 1,3.2   # multiple — sections + specific cases
+```
+
+Rules:
+- Filter without a dot (`1`) = section prefix match.
+- Filter with a dot (`1.2`) = exact-id or deeper-prefix match. Doesn't match `1.20` or `10.2`.
+- Comma-separated for multiple filters; a case matches if it matches ANY filter.
+- `setup` and `teardown` always run (including auto user create + sign-in + cleanup).
+- Section hierarchy still applies: `--only 3` + a 3.x case fails → rest of 3.x skipped.
+
 ## Actions
 
 | Verb | Shape | What it does |
@@ -85,9 +102,51 @@ Case IDs are `<section>.<case>` (e.g. `1.1`, `3.4`).
 | `browser.hover` | string | Hover over an element. For hover-reveal UI (e.g. `opacity-0 group-hover:opacity-100`). |
 | `browser.upload_file` | `{ selector, file }` | Set file(s) on a `<input type="file">`. `file` is a path string or array of paths (relative to project root). |
 | `browser.capture_url` | `{ pattern, as }` | Regex against `page.url()`; store capture group into context. |
-| `http.post` | `{ url, auth?, body? }` | Direct POST. `auth: session` forwards browser cookies. |
-| `http.get` | `{ url, auth? }` | Direct GET. |
+| `browser.eval` | `{ script, as? }` | Evaluate JS in page context, optionally store result into `context.<key>`. Wrapped in `(async () => (<expr>))()` so both sync expressions and `await`-able async calls work. |
+| `auth.sign_in_again` | `true` (no shape) | Replay the run's configured sign-in (the `signInFlow` from `base.yaml`, or `signIn: ticket` if that's the mode). Use after a `/logout` action to re-establish a session mid-plan. |
+| `http.get` | `{ url, auth?, token?, headers? }` | Direct GET. |
+| `http.post` | `{ url, auth?, token?, body?, headers? }` | Direct POST. |
+| `http.put` | `{ url, auth?, token?, body?, headers? }` | Direct PUT. |
+| `http.patch` | `{ url, auth?, token?, body?, headers? }` | Direct PATCH. |
+| `http.delete` | `{ url, auth?, token?, headers? }` | Direct DELETE. |
 | `http.intercept` | `{ pattern, status?, body?, contentType?, headers? }` | Stub a response for any request matching `pattern` (Playwright glob). Persists for the rest of the run. Use to fake external services (e.g. Glances) in CI. |
+
+### Template resolution in HTTP actions
+
+Templates work in `url`, `token`, `body`, and `headers`. Body templates are walked recursively — `{{...}}` strings inside nested objects/arrays are all resolved:
+
+```yaml
+- http.post:
+    url: "{{meta.environments.api}}/api/widgets"
+    auth: bearer
+    token: "{{context.jwt}}"
+    body:
+      site_id: "{{context.site_slug}}"
+      fields:
+        - name: "Widget for {{meta.test_user.email}}"
+```
+
+### `auth` modes for `http.*` actions
+
+| Value | Behavior |
+|---|---|
+| omitted | No auth headers/cookies |
+| `"session"` | Forward all browser cookies (cookie/session-based auth) |
+| `"bearer"` | Set `Authorization: Bearer <token>`. Requires `token` field — supports templates: `token: "{{context.jwt}}"` |
+
+For JWT-authed REST APIs, use `auth: bearer` with a token sourced via `browser.eval`:
+
+```yaml
+actions:
+  - browser.eval:
+      script: "await window.Clerk?.session?.getToken()"
+      as: context.jwt
+  - http.post:
+      url: "{{meta.environments.api}}/api/widgets"
+      auth: bearer
+      token: "{{context.jwt}}"
+      body: { name: "test" }
+```
 
 HTTP status of the most recent `http.*` action is stashed for the next `http_status` assert in the same case.
 
@@ -108,6 +167,7 @@ All have a `type` discriminator.
 | `expect_download` | `{ filename_pattern? }` — arm BEFORE the triggering action |
 | `expect_modal` | `{ kind }` — matches element by `data-testid`/class/`aria-label`/text containing kind |
 | `expect_screenshot` | `{ name, selector?, threshold? }` — pixel-diff against `.aivion-qa/snapshots/<plan>/<name>`. First run creates baseline; subsequent runs compare. Use `--update-snapshots` to regenerate. |
+| `expect_context` | `{ key, equals? \| matches? \| exists? }` — assert on a value previously stored via `storeAs` or `browser.capture_url`. `equals` does string-coerced equality; `matches` is a JS regex; `exists: true/false` checks presence. |
 
 ### Network
 
